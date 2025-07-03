@@ -7,10 +7,15 @@ PUUSH_API_KEY=""
 # www.sunmock.com
 # May 2014
 #
+# KDE support added by:
+# Alessandro Amella
+# www.bitrey.dev
+# July 2025
+#
 # Dependencies:
-# - gnome-screenshot
+# - gnome-screenshot (for GNOME) or spectacle (for KDE)
 # - curl
-# - zenity
+# - zenity (for GNOME) or kdialog (for KDE, optional)
 # - xclip
 # - notify-send
 #
@@ -33,10 +38,8 @@ PUUSH_API_KEY=""
 # Notes:
 # - Link(s) will be copied into clipboard and appear in notifications
 # - puush curl upload code borrowed from online sources
-
 # Usage: puushFile [fileName]
-function puushFile ()
-{
+function puushFile() {
 	if [ -z "$1" ]; then
 		echo "No file specified"
 		exit 1
@@ -44,113 +47,189 @@ function puushFile ()
 		echo "Puush cancelled"
 		exit 1
 	fi
-
-	fileURL=`curl "https://puush.me/api/up" -# -F "k=$PUUSH_API_KEY" -F "z=waifu" -F "f=@$1" | sed -E 's/^.+,(.+),.+,.+$/\1\n/'`
-
+	fileURL=$(curl "https://puush.me/api/up" -# -F "k=$PUUSH_API_KEY" -F "z=waifu" -F "f=@$1" | sed -E 's/^.+,(.+),.+,.+$/\1\n/')
 	if [ ! -z "$fileURL" ]; then
 		#Copy link to clipboard, show notification
 		printf $fileURL | xclip -selection "clipboard"
-		notify-send -i "$( cd "$( dirname "$0" )" && pwd )/icon.png" -t 2000 "puush complete!" "$fileURL"
+		notify-send -i "$(cd "$(dirname "$0")" && pwd)/icon.png" -t 2000 "puush complete!" "$fileURL"
+	fi
+}
+function helpText() {
+	printf "_____________ puush for linux _____________\n"
+	printf "Created by Sunmock Yang using the puush api\n"
+	printf "\n"
+	printf "Usage:\n"
+	printf "  puush [OPTIONS] [PATH]\n"
+	printf "\n"
+	printf "OPTIONS:\n"
+	printf "  -a                 puush entire desktop\n"
+	printf "  -b                 select area to puush\n"
+	printf "  -c                 puush current window\n"
+	printf "  -d                 puush specific file (opens file dialog)\n"
+	printf "  -e                 puush clipboard contents\n"
+	printf "\n"
+	printf "  --help,-h          show this page\n"
+	printf "\n"
+	printf "PATH:\n"
+	printf "  PATH               optional: path of file to puush\n"
+}
+
+# Modified to use the custom directory
+PUUSH_SAVE_DIR="/home/bitrey/Pictures/puush"
+
+# Desktop environment detection and screenshot functions
+function detectDesktopEnvironment() {
+	if [ "$XDG_CURRENT_DESKTOP" = "GNOME" ] || [ "$DESKTOP_SESSION" = "gnome" ] || [ "$GDMSESSION" = "gnome" ]; then
+		echo "gnome"
+	elif [ "$XDG_CURRENT_DESKTOP" = "KDE" ] || [ "$DESKTOP_SESSION" = "kde" ] || [ "$KDE_FULL_SESSION" = "true" ]; then
+		echo "kde"
+	elif command -v gnome-screenshot >/dev/null 2>&1; then
+		echo "gnome"
+	elif command -v spectacle >/dev/null 2>&1; then
+		echo "kde"
+	else
+		echo "unknown"
 	fi
 }
 
-function helpText ()
-{
-  printf "_____________ puush for linux _____________\n"
-  printf "Created by Sunmock Yang using the puush api\n"
-  printf "\n"
-  printf "Usage:\n"
-  printf "  puush [OPTIONS] [PATH]\n"
-  printf "\n"
-  printf "OPTIONS:\n"
-  printf "  -a                 puush entire desktop\n"
-  printf "  -b                 select area to puush\n"
-  printf "  -c                 puush current window\n"
-  printf "  -d                 puush specific file (opens file dialog)\n"
-  printf "  -e                 puush clipboard contents\n"
-  printf "\n"
-  printf "  --help,-h          show this page\n"
-  printf "\n"
-  printf "PATH:\n"
-  printf "  PATH               optional: path of file to puush\n"
+function takeScreenshot() {
+	local mode="$1"
+	local fileName="$2"
+	local desktop_env=$(detectDesktopEnvironment)
+
+	case "$desktop_env" in
+	"gnome")
+		case "$mode" in
+		"fullscreen")
+			gnome-screenshot -f "$fileName"
+			;;
+		"area")
+			gnome-screenshot -a -f "$fileName"
+			;;
+		"window")
+			gnome-screenshot -w -f "$fileName"
+			;;
+		esac
+		;;
+	"kde")
+		case "$mode" in
+		"fullscreen")
+			spectacle -f -b -n -o "$fileName"
+			;;
+		"area")
+			spectacle -r -b -n -o "$fileName"
+			;;
+		"window")
+			spectacle -a -b -n -o "$fileName"
+			;;
+		esac
+		;;
+	*)
+		echo "Unsupported desktop environment. Trying gnome-screenshot as fallback..."
+		case "$mode" in
+		"fullscreen")
+			gnome-screenshot -f "$fileName"
+			;;
+		"area")
+			gnome-screenshot -a -f "$fileName"
+			;;
+		"window")
+			gnome-screenshot -w -f "$fileName"
+			;;
+		esac
+		;;
+	esac
 }
 
-function generateFileName () { echo "/tmp/puush-linux ($(date +"%Y-%m-%d at %I.%M.%S")).png"; }
+# Make sure the directory exists
+function ensureSaveDirectory() {
+	if [ ! -d "$PUUSH_SAVE_DIR" ]; then
+		mkdir -p "$PUUSH_SAVE_DIR"
+	fi
+}
 
+function generateFileName() {
+	ensureSaveDirectory
+	echo "$PUUSH_SAVE_DIR/puush-linux ($(date +"%Y-%m-%d at %I.%M.%S")).png"
+}
+
+function selectFile() {
+	local desktop_env=$(detectDesktopEnvironment)
+
+	case "$desktop_env" in
+	"kde")
+		if command -v kdialog >/dev/null 2>&1; then
+			kdialog --getopenfilename . "All files (*.*)"
+		else
+			zenity --file-selection
+		fi
+		;;
+	*)
+		zenity --file-selection
+		;;
+	esac
+}
 
 if [ -z "$PUUSH_API_KEY" ]; then
-  echo "Set the variable PUUSH_API_KEY in $0"
-  echo "You can find your API key at http://puush.me/account/settings"
-
-  notify-send -i "$( cd "$( dirname "$0" )" && pwd )/icon.png" "Set the variable PUUSH_API_KEY in $0" "You can find your API key at http://puush.me/account/settings"
-
-  exit 1
-
+	echo "Set the variable PUUSH_API_KEY in $0"
+	echo "You can find your API key at http://puush.me/account/settings"
+	notify-send -i "$(cd "$(dirname "$0")" && pwd)/icon.png" "Set the variable PUUSH_API_KEY in $0" "You can find your API key at http://puush.me/account/settings"
+	exit 1
 elif [ -z "$1" ]; then
 	echo "No file entered."
 	helpText
-  exit 1
-
+	exit 1
 fi
-
 #Get file to puush and puush it
 case "$1" in
-	-a)
-		echo "Whole Desktop"
-			fileName=$(generateFileName)
-			gnome-screenshot -f "$fileName"
+-a)
+	echo "Whole Desktop"
+	fileName=$(generateFileName)
+	takeScreenshot "fullscreen" "$fileName"
+	puushFile "$fileName"
+	;;
+-b)
+	echo "Area"
+	fileName=$(generateFileName)
+	takeScreenshot "area" "$fileName"
+	puushFile "$fileName"
+	;;
+-c)
+	echo "Window"
+	fileName=$(generateFileName)
+	takeScreenshot "window" "$fileName"
+	puushFile "$fileName"
+	;;
+-d)
+	echo "File Upload"
+	fileName=$(selectFile)
+	puushFile "$fileName"
+	;;
+-e)
+	echo "Clipboard Upload"
+	targets=$(xclip -selection clipboard -t TARGETS -o)
+	fileName="$PUUSH_SAVE_DIR/puush-linux-clip"
+	ensureSaveDirectory
+	for target in $targets; do
+		if [[ "$target" =~ "/" ]]; then
+			xclip -selection "clipboard" -t "$target" -o >"$fileName"
 			puushFile "$fileName"
-		;;
+			exit $?
+		fi
+	done
+	# we're here because clipboard content's MIME-type is not really known. Does it even have a type?
+	# well, let's hope for the best and push it as plaintext
+	xclip -selection "clipboard" -t "text/plain" -o >"$fileName"
+	puushFile "$fileName"
+	;;
+-h | --help)
+	helpText
+	exit 0
+	;;
 
-	-b)
-		echo "Area"
-			fileName=$(generateFileName)
-			gnome-screenshot -a -f "$fileName"
-			puushFile "$fileName"
-		;;
+*)
+	echo "Upload $1"
+	puushFile "$1"
+	;;
 
-	-c)
-		echo "Window"
-			fileName=$(generateFileName)
-			gnome-screenshot -w -f "$fileName"
-			puushFile "$fileName"
-		;;
-
-	-d)
-		echo "File Upload"
-			fileName=`zenity --file-selection`
-			puushFile "$fileName"
-		;;
-
-	-e)
-		echo "Clipboard Upload"
-			targets=`xclip -selection clipboard -t TARGETS -o`
-			fileName="/tmp/puush-linux-clip"
-
-			for target in $targets
-			do
-				if [[ "$target" =~ "/" ]]; then
-					xclip -selection "clipboard" -t "$target" -o > "$fileName"
-					puushFile "$fileName"
-					exit $?
-				fi
-			done
-
-			# we're here because clipboard content's MIME-type is not really known. Does it even have a type?
-			# well, let's hope for the best and push it as plaintext
-
-			xclip -selection "clipboard" -t "text/plain" -o > "$fileName"
-			puushFile "$fileName"
-		;;
-
-	-h|--help)
-		helpText
-		exit 0
-		;;
-		
-	*)
-		echo "Upload $1"
-			puushFile "$1"
-		;;
-		
 esac
