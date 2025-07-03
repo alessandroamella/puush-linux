@@ -85,8 +85,14 @@ function helpText() {
 	printf "  PATH               optional: path of file to puush\n"
 }
 
-# Modified to use the custom directory
-PUUSH_SAVE_DIR="/home/bitrey/Pictures/puush"
+# Automatically use user's home directory
+if [ -z "$HOME" ]; then
+	echo "ERROR: HOME environment variable is not set"
+	echo "Cannot determine user's home directory"
+	exit 1
+fi
+
+PUUSH_SAVE_DIR="$HOME/Pictures/puush"
 
 # Debug logging (set PUUSH_DEBUG=true to enable)
 DEBUG_LOG="$PUUSH_SAVE_DIR/puush-debug.log"
