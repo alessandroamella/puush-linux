@@ -2,6 +2,9 @@
 # Set API Key here
 PUUSH_API_KEY=""
 
+# Debug mode (set to true to enable debug logging)
+PUUSH_DEBUG=false
+
 # Puush for Ubuntu/linux
 # Owner : Sunmock Yang
 # www.sunmock.com
@@ -40,18 +43,26 @@ PUUSH_API_KEY=""
 # - puush curl upload code borrowed from online sources
 # Usage: puushFile [fileName]
 function puushFile() {
+	debugLog "puushFile called with argument: '$1'"
 	if [ -z "$1" ]; then
+		debugLog "ERROR: No file specified"
 		echo "No file specified"
 		exit 1
 	elif [ ! -f "$1" ]; then
+		debugLog "ERROR: File does not exist: '$1'"
 		echo "Puush cancelled"
 		exit 1
 	fi
+	debugLog "Uploading file: '$1'"
 	fileURL=$(curl "https://puush.me/api/up" -# -F "k=$PUUSH_API_KEY" -F "z=waifu" -F "f=@$1" | sed -E 's/^.+,(.+),.+,.+$/\1\n/')
+	debugLog "Received URL: '$fileURL'"
 	if [ ! -z "$fileURL" ]; then
 		#Copy link to clipboard, show notification
 		printf $fileURL | xclip -selection "clipboard"
+		debugLog "SUCCESS: File uploaded and URL copied to clipboard"
 		notify-send -i "$(cd "$(dirname "$0")" && pwd)/icon.png" -t 2000 "puush complete!" "$fileURL"
+	else
+		debugLog "ERROR: No URL received from puush API"
 	fi
 }
 function helpText() {
@@ -77,6 +88,17 @@ function helpText() {
 # Modified to use the custom directory
 PUUSH_SAVE_DIR="/home/bitrey/Pictures/puush"
 
+# Debug logging (set PUUSH_DEBUG=true to enable)
+DEBUG_LOG="$PUUSH_SAVE_DIR/puush-debug.log"
+
+function debugLog() {
+	if [ "$PUUSH_DEBUG" = "true" ]; then
+		local message="$1"
+		ensureSaveDirectory
+		echo "$(date '+%Y-%m-%d %H:%M:%S') - $message" >>"$DEBUG_LOG"
+	fi
+}
+
 # Desktop environment detection and screenshot functions
 function detectDesktopEnvironment() {
 	if [ "$XDG_CURRENT_DESKTOP" = "GNOME" ] || [ "$DESKTOP_SESSION" = "gnome" ] || [ "$GDMSESSION" = "gnome" ]; then
@@ -97,16 +119,21 @@ function takeScreenshot() {
 	local fileName="$2"
 	local desktop_env=$(detectDesktopEnvironment)
 
+	debugLog "takeScreenshot called - mode: '$mode', fileName: '$fileName', desktop_env: '$desktop_env'"
+
 	case "$desktop_env" in
 	"gnome")
 		case "$mode" in
 		"fullscreen")
+			debugLog "Taking fullscreen screenshot with gnome-screenshot"
 			gnome-screenshot -f "$fileName"
 			;;
 		"area")
+			debugLog "Taking area screenshot with gnome-screenshot"
 			gnome-screenshot -a -f "$fileName"
 			;;
 		"window")
+			debugLog "Taking window screenshot with gnome-screenshot"
 			gnome-screenshot -w -f "$fileName"
 			;;
 		esac
@@ -114,17 +141,21 @@ function takeScreenshot() {
 	"kde")
 		case "$mode" in
 		"fullscreen")
+			debugLog "Taking fullscreen screenshot with spectacle"
 			spectacle -f -b -n -o "$fileName"
 			;;
 		"area")
+			debugLog "Taking area screenshot with spectacle"
 			spectacle -r -b -n -o "$fileName"
 			;;
 		"window")
+			debugLog "Taking window screenshot with spectacle"
 			spectacle -a -b -n -o "$fileName"
 			;;
 		esac
 		;;
 	*)
+		debugLog "Unknown desktop environment, using gnome-screenshot fallback"
 		echo "Unsupported desktop environment. Trying gnome-screenshot as fallback..."
 		case "$mode" in
 		"fullscreen")
@@ -139,6 +170,12 @@ function takeScreenshot() {
 		esac
 		;;
 	esac
+
+	if [ -f "$fileName" ]; then
+		debugLog "Screenshot saved successfully: '$fileName' ($(stat -c%s "$fileName") bytes)"
+	else
+		debugLog "ERROR: Screenshot file was not created: '$fileName'"
+	fi
 }
 
 # Make sure the directory exists
@@ -171,47 +208,60 @@ function selectFile() {
 }
 
 if [ -z "$PUUSH_API_KEY" ]; then
+	debugLog "ERROR: PUUSH_API_KEY is not set"
 	echo "Set the variable PUUSH_API_KEY in $0"
 	echo "You can find your API key at http://puush.me/account/settings"
 	notify-send -i "$(cd "$(dirname "$0")" && pwd)/icon.png" "Set the variable PUUSH_API_KEY in $0" "You can find your API key at http://puush.me/account/settings"
 	exit 1
 elif [ -z "$1" ]; then
+	debugLog "ERROR: No arguments provided"
 	echo "No file entered."
 	helpText
 	exit 1
 fi
+
+debugLog "Script started with arguments: $@"
+debugLog "Environment: XDG_CURRENT_DESKTOP='$XDG_CURRENT_DESKTOP', DESKTOP_SESSION='$DESKTOP_SESSION'"
 #Get file to puush and puush it
 case "$1" in
 -a)
+	debugLog "Mode: Whole Desktop"
 	echo "Whole Desktop"
 	fileName=$(generateFileName)
 	takeScreenshot "fullscreen" "$fileName"
 	puushFile "$fileName"
 	;;
 -b)
+	debugLog "Mode: Area"
 	echo "Area"
 	fileName=$(generateFileName)
 	takeScreenshot "area" "$fileName"
 	puushFile "$fileName"
 	;;
 -c)
+	debugLog "Mode: Window"
 	echo "Window"
 	fileName=$(generateFileName)
 	takeScreenshot "window" "$fileName"
 	puushFile "$fileName"
 	;;
 -d)
+	debugLog "Mode: File Upload"
 	echo "File Upload"
 	fileName=$(selectFile)
+	debugLog "Selected file: '$fileName'"
 	puushFile "$fileName"
 	;;
 -e)
+	debugLog "Mode: Clipboard Upload"
 	echo "Clipboard Upload"
 	targets=$(xclip -selection clipboard -t TARGETS -o)
+	debugLog "Clipboard targets: $targets"
 	fileName="$PUUSH_SAVE_DIR/puush-linux-clip"
 	ensureSaveDirectory
 	for target in $targets; do
 		if [[ "$target" =~ "/" ]]; then
+			debugLog "Using clipboard target: $target"
 			xclip -selection "clipboard" -t "$target" -o >"$fileName"
 			puushFile "$fileName"
 			exit $?
@@ -219,15 +269,18 @@ case "$1" in
 	done
 	# we're here because clipboard content's MIME-type is not really known. Does it even have a type?
 	# well, let's hope for the best and push it as plaintext
+	debugLog "No suitable MIME type found, using text/plain"
 	xclip -selection "clipboard" -t "text/plain" -o >"$fileName"
 	puushFile "$fileName"
 	;;
 -h | --help)
+	debugLog "Mode: Help"
 	helpText
 	exit 0
 	;;
 
 *)
+	debugLog "Mode: Direct file upload - '$1'"
 	echo "Upload $1"
 	puushFile "$1"
 	;;
